@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Discussions Archive</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #0969da;
+            --bg-color: #ffffff;
+            --text-color: #24292f;
+            --border-color: #d0d7de;
+            --filter-btn-bg: #f6f8fa;
+            --filter-btn-hover: #f3f4f6;
+            --meta-text-color: #57606a;
+            --tag-bg: #ddf4ff;
+            --tag-text: #0969da;
+            --link-hover-bg: #ddf4ff;
+        }
+
+        [data-theme="dark"] {
+            --primary-color: #58a6ff;
+            --bg-color: #0d1117;
+            --text-color: #c9d1d9;
+            --border-color: #30363d;
+            --filter-btn-bg: #21262d;
+            --filter-btn-hover: #30363d;
+            --meta-text-color: #8b949e;
+            --tag-bg: #1f4a6f;
+            --tag-text: #58a6ff;
+            --link-hover-bg: #1f4a6f;
+        }
+
+        body {
+            transition: background-color 0.3s ease, color 0.3s ease;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            line-height: 1.5;
+            color: var(--text-color);
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: var(--bg-color);
+        }
+
+        a {
+            color: var(--tag-text);
+            text-decoration: none;
+            padding: 0.1em 0.3em;
+            border-radius: 0.2em;
+            transition: background-color 0.2s ease;
+        }
+
+        a:hover {
+            background-color: var(--link-hover-bg);
+            text-decoration: none;
+        }
+
+        .header {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .theme-toggle-button {
+            background: var(--filter-btn-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 2rem;
+            padding: 0.5rem 1rem;
+            color: var(--text-color);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .theme-toggle-button:hover {
+            background: var(--filter-btn-hover);
+        }
+
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .filter-group {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            background: var(--filter-btn-bg);
+        }
+
+        .filter-group h3 {
+            margin-top: 0;
+            margin-bottom: 0.5rem;
+            color: var(--text-color);
+        }
+
+        .tag-list, .people-list, .repo-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .filter-btn {
+            background: var(--filter-btn-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 2rem;
+            padding: 0.25rem 0.75rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            color: var(--text-color);
+        }
+
+        .filter-btn:hover {
+            background: var(--filter-btn-hover);
+        }
+
+        .filter-btn.active {
+            background: var(--primary-color);
+            color: var(--bg-color);
+            border-color: var(--primary-color);
+        }
+
+        .discussion-list {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .discussion-item {
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            background: var(--filter-btn-bg);
+        }
+
+        .discussion-item h3 {
+            margin: 0;
+        }
+
+        .discussion-item h3 a {
+            color: var(--tag-text);
+            font-weight: 600;
+        }
+
+        .discussion-meta {
+            color: var(--meta-text-color);
+            font-size: 0.875rem;
+            margin: 0.5rem 0;
+        }
+
+        .discussion-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .discussion-tag {
+            background: var(--tag-bg);
+            color: var(--tag-text);
+            border-radius: 2rem;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.75rem;
+        }
+
+        .discussion-content {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-color);
+            opacity: 0.9;
+        }
+
+        .discussion-content a {
+            color: var(--tag-text);
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>GitHub Discussions Archive</h1>
+        <div class="theme-toggle">
+            <button class="theme-toggle-button" id="themeToggle">
+                <span id="themeIcon">🌞</span>
+                <span id="themeText">Switch to Dark Mode</span>
+            </button>
+        </div>
+    </div>
+
+    <div class="filters">
+        <div class="filter-group">
+            <h3>Filter by Tags</h3>
+            <div class="tag-list" id="tagFilters"></div>
+        </div>
+        <div class="filter-group">
+            <h3>Filter by People</h3>
+            <div class="people-list" id="peopleFilters"></div>
+        </div>
+        <div class="filter-group">
+            <h3>Filter by Repositories</h3>
+            <div class="repo-list" id="repoFilters"></div>
+        </div>
+    </div>
+
+    <div class="discussion-list" id="discussionList"></div>
+
+    <script>
+        // Theme manager
+        const ThemeManager = {
+            currentTheme: 'light',
+            
+            init() {
+                if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    this.currentTheme = 'dark';
+                }
+                this.applyTheme(this.currentTheme);
+            },
+            
+            toggle() {
+                this.currentTheme = this.currentTheme === 'dark' ? 'light' : 'dark';
+                this.applyTheme(this.currentTheme);
+            },
+            
+            applyTheme(theme) {
+                document.documentElement.setAttribute('data-theme', theme);
+                const themeIcon = document.getElementById('themeIcon');
+                const themeText = document.getElementById('themeText');
+                themeIcon.textContent = theme === 'dark' ? '🌜' : '🌞';
+                themeText.textContent = theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+            }
+        };
+
+        // Fallback data
+        const fallbackData = `
+# GitHub Discussions Archive
+
+## Documentation Updates
+- title: Improving Documentation Structure
+- date: 2024-03-15
+- author: johndoe
+- repo: docs-repo
+- tags: documentation, improvement
+- url: #
+
+Discussion about improving our documentation structure and organization.
+
+---
+
+## Feature Request: Dark Mode
+- title: New Feature Request: Dark Mode
+- date: 2024-03-14
+- author: janesmith
+- repo: ui-components
+- tags: feature-request, ui
+- url: #
+
+Proposal for adding dark mode support across all components.
+`;
+
+        // Markdown Parser
+        const MarkdownParser = {
+            parse(markdown) {
+                const discussions = [];
+                const sections = markdown.split('---').filter(section => section.trim());
+                
+                sections.forEach(section => {
+                    const lines = section.trim().split('\n');
+                    const discussion = {
+                        title: '',
+                        date: '',
+                        author: '',
+                        repo: '',
+                        tags: [],
+                        url: '',
+                        content: ''
+                    };
+                    
+                    let contentLines = [];
+                    
+                    lines.forEach(line => {
+                        line = line.trim();
+                        if (!line) return;
+                        
+                        if (line.startsWith('# ')) {
+                            return;
+                        } else if (line.startsWith('## ')) {
+                            discussion.title = line.substring(3).trim();
+                        } else if (line.startsWith('- ')) {
+                            const [key, ...values] = line.substring(2).split(':');
+                            const value = values.join(':').trim();
+                            
+                            switch (key.trim().toLowerCase()) {
+                                case 'title':
+                                    discussion.title = value;
+                                    break;
+                                case 'date':
+                                    discussion.date = value;
+                                    break;
+                                case 'author':
+                                    discussion.author = value;
+                                    break;
+                                case 'repo':
+                                    discussion.repo = value;
+                                    break;
+                                case 'tags':
+                                    discussion.tags = value.split(',').map(tag => tag.trim());
+                                    break;
+                                case 'url':
+                                    discussion.url = value;
+                                    break;
+                            }
+                        } else {
+                            contentLines.push(line);
+                        }
+                    });
+                    
+                    if (contentLines.length > 0) {
+                        discussion.content = marked.parse(contentLines.join('\n'));
+                    }
+                    
+                    if (discussion.title) {
+                        discussions.push(discussion);
+                    }
+                });
+                
+                return discussions;
+            }
+        };
+
+        // Initialize function
+        async function initialize() {
+            let discussions;
+            try {
+                const response = await fetch('discussions.md');
+                const markdown = await response.text();
+                discussions = MarkdownParser.parse(markdown);
+            } catch (error) {
+                console.log('Using fallback data');
+                discussions = MarkdownParser.parse(fallbackData);
+            }
+            
+            const tags = [...new Set(discussions.flatMap(d => d.tags))];
+            const people = [...new Set(discussions.map(d => d.author))];
+            const repos = [...new Set(discussions.map(d => d.repo))];
+
+            // Active filters
+            const activeFilters = {
+                tags: new Set(),
+                people: new Set(),
+                repos: new Set()
+            };
+
+            function createFilterButtons(items, containerId, filterType) {
+                const container = document.getElementById(containerId);
+                items.forEach(item => {
+                    const button = document.createElement('button');
+                    button.className = 'filter-btn';
+                    button.textContent = item;
+                    button.onclick = () => toggleFilter(item, filterType, button);
+                    container.appendChild(button);
+                });
+            }
+
+            function toggleFilter(value, filterType, button) {
+                if (activeFilters[filterType].has(value)) {
+                    activeFilters[filterType].delete(value);
+                    button.classList.remove('active');
+                } else {
+                    activeFilters[filterType].add(value);
+                    button.classList.add('active');
+                }
+                updateDiscussionList();
+            }
+
+            function shouldShowDiscussion(discussion) {
+                const tagMatch = activeFilters.tags.size === 0 || 
+                    discussion.tags.some(tag => activeFilters.tags.has(tag));
+                const personMatch = activeFilters.people.size === 0 || 
+                    activeFilters.people.has(discussion.author);
+                const repoMatch = activeFilters.repos.size === 0 || 
+                    activeFilters.repos.has(discussion.repo);
+
+                return tagMatch && personMatch && repoMatch;
+            }
+
+            function createDiscussionElement(discussion) {
+                const div = document.createElement('div');
+                div.className = 'discussion-item';
+                div.innerHTML = `
+                    <h3><a href="${discussion.url}">${discussion.title}</a></h3>
+                    <div class="discussion-meta">
+                        By ${discussion.author} in ${discussion.repo} on ${discussion.date}
+                    </div>
+                    <div class="discussion-tags">
+                        ${discussion.tags.map(tag => `
+                            <span class="discussion-tag">${tag}</span>
+                        `).join('')}
+                    </div>
+                    <div class="discussion-content">
+                        ${discussion.content}
+                    </div>
+                `;
+                return div;
+            }
+
+            function updateDiscussionList() {
+                const container = document.getElementById('discussionList');
+                container.innerHTML = '';
+
+                discussions.forEach(discussion => {
+                    if (shouldShowDiscussion(discussion)) {
+                        const element = createDiscussionElement(discussion);
+                        container.appendChild(element);
+                    }
+                });
+            }
+
+            // Create filter buttons
+            createFilterButtons(tags, 'tagFilters', 'tags');
+            createFilterButtons(people, 'peopleFilters', 'people');
+            createFilterButtons(repos, 'repoFilters', 'repos');
+            
+            // Initial render
+            updateDiscussionList();
+        }
+
+        // Initialize everything
+        ThemeManager.init();
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            ThemeManager.toggle();
+        });
+        initialize();
+    </script>
+</body>
+</html>
