@@ -1,0 +1,206 @@
+name: Track GitHub Discussions
+
+on:
+  # Run daily at midnight
+  schedule:
+    - cron: '0 0 * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+  # Run when config file is updated
+  push:
+    paths:
+      - '.github/discussion-tracker-config.md'
+
+env:
+  OUTPUT_FILE: 'discussion-tracker.md'
+  CONFIG_FILE: '.github/discussion-tracker-config.md'
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  track-discussions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyGithub pyyaml
+
+      - name: Search and Update Discussions
+        run: |
+          cat > search_discussions.py << 'EOL'
+          import os
+          import re
+          from datetime import datetime
+          from github import Github
+
+          def parse_config_file(filename):
+              """Parse the configuration markdown file."""
+              config = {
+                  'organizations': [],
+                  'labels': [],
+                  'users': []
+              }
+              
+              try:
+                  with open(filename, 'r') as f:
+                      content = f.read()
+                      
+                      # Extract organizations section
+                      orgs_match = re.search(r'### Organizations\s*\n([\s\S]*?)(?=###|$)', content)
+                      if orgs_match:
+                          orgs = re.findall(r'- (.*?)(?:\n|$)', orgs_match.group(1))
+                          config['organizations'] = [org.strip() for org in orgs if org.strip()]
+                      
+                      # Extract labels section
+                      labels_match = re.search(r'### Labels\s*\n([\s\S]*?)(?=###|$)', content)
+                      if labels_match:
+                          labels = re.findall(r'- (.*?)(?:\n|$)', labels_match.group(1))
+                          config['labels'] = [label.strip() for label in labels if label.strip()]
+                      
+                      # Extract users section
+                      users_match = re.search(r'### Users\s*\n([\s\S]*?)(?=###|$)', content)
+                      if users_match:
+                          users = re.findall(r'- (.*?)(?:\n|$)', users_match.group(1))
+                          config['users'] = [user.strip().lstrip('@') for user in users if user.strip()]
+                          
+              except FileNotFoundError:
+                  print(f"Config file {filename} not found. Creating template...")
+                  create_template_config(filename)
+                  raise SystemExit("Please configure the newly created config file and re-run the action.")
+                  
+              return config
+
+          def create_template_config(filename):
+              """Create a template configuration file."""
+              template = """# Discussion Tracker Configuration
+
+### Organizations
+- org1
+- org2
+Note: List the GitHub organization names you want to search
+
+### Labels
+- documentation
+- help-wanted
+- important
+
+### Users
+- @username1
+- @username2
+
+Note: Remove these example values and add your own organizations, labels, and users.
+The organization running this action must have access to all listed organizations.
+"""
+              os.makedirs(os.path.dirname(filename), exist_ok=True)
+              with open(filename, 'w') as f:
+                  f.write(template)
+
+          def main():
+              # Initialize GitHub client
+              g = Github(os.environ['GITHUB_TOKEN'])
+              
+              # Get configuration
+              config = parse_config_file(os.environ['CONFIG_FILE'])
+              organizations = config['organizations']
+              labels = config['labels']
+              users = config['users']
+              
+              if not organizations:
+                  # If no organizations specified, use the current one
+                  organizations = [os.environ['GITHUB_REPOSITORY'].split('/')[0]]
+              
+              if not labels or not users:
+                  raise ValueError("No labels or users configured. Please update the config file.")
+              
+              discussions = []
+              
+              # Search through all specified organizations
+              for org_name in organizations:
+                  try:
+                      org = g.get_organization(org_name)
+                      print(f"Processing organization: {org_name}")
+                      
+                      # Search through all repositories in the organization
+                      for repo in org.get_repos():
+                          try:
+                              # Get all discussions in the repository
+                              for discussion in repo.get_discussions():
+                                  # Check if discussion matches our criteria
+                                  discussion_labels = [l.name for l in discussion.labels]
+                                  if (any(label in discussion_labels for label in labels) and
+                                      discussion.user.login in users):
+                                      
+                                      discussions.append({
+                                          'title': discussion.title,
+                                          'date': discussion.created_at.strftime('%Y-%m-%d'),
+                                          'author': discussion.user.login,
+                                          'org': org_name,
+                                          'repo': repo.name,
+                                          'tags': ', '.join(discussion_labels),
+                                          'url': discussion.html_url,
+                                          'body': discussion.body[:200] + '...' if len(discussion.body) > 200 else discussion.body
+                                      })
+                          except Exception as e:
+                              print(f"Error processing repo {repo.name}: {str(e)}")
+                              continue
+                  except Exception as e:
+                      print(f"Error processing organization {org_name}: {str(e)}")
+                      continue
+              
+              # Write to markdown file
+              output_file = os.environ['OUTPUT_FILE']
+              
+              with open(output_file, 'w') as f:
+                  f.write('# Organization Discussion Tracker\n\n')
+                  f.write(f'Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}\n\n')
+                  f.write('## Configuration\n')
+                  f.write('### Tracked Organizations\n')
+                  for org in organizations:
+                      f.write(f'- {org}\n')
+                  f.write('\n### Tracked Labels\n')
+                  for label in labels:
+                      f.write(f'- {label}\n')
+                  f.write('\n### Tracked Users\n')
+                  for user in users:
+                      f.write(f'- @{user}\n')
+                  f.write('\n## Discussions\n\n')
+                  
+                  # Group discussions by organization
+                  discussions_by_org = {}
+                  for disc in discussions:
+                      org = disc['org']
+                      if org not in discussions_by_org:
+                          discussions_by_org[org] = []
+                      discussions_by_org[org].append(disc)
+                  
+                  # Write discussions grouped by organization
+                  for org in sorted(discussions_by_org.keys()):
+                      f.write(f'### {org}\n\n')
+                      for disc in sorted(discussions_by_org[org], key=lambda x: x['date'], reverse=True):
+                          f.write(f'#### {disc["title"]}\n')
+                          f.write(f'- date: {disc["date"]}\n')
+                          f.write(f'- author: {disc["author"]}\n')
+                          f.write(f'- repo: {disc["repo"]}\n')
+                          f.write(f'- tags: {disc["tags"]}\n')
+                          f.write(f'- url: {disc["url"]}\n\n')
+                          f.write(f'{disc["body"]}\n\n')
+
+          if __name__ == '__main__':
+              main()
+          EOL
+          
+          python search_discussions.py
+
+      - name: Commit and Push Changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add ${{ env.OUTPUT_FILE }}
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update discussion tracker [skip ci]" && git push)
